@@ -28,6 +28,8 @@ func main() {
 		}()
 	}
 
+	exitStatus := 0
+
 	for file := range files {
 		fmter := nofmt.NewFormatter(opt.formatter)
 		stdout := &bytes.Buffer{}
@@ -43,7 +45,11 @@ func main() {
 			if file == "" {
 				file = "stdin"
 			}
+			if stderr.Len() > 0 {
+				fmt.Print(stderr.String())
+			}
 			fmt.Fprintf(os.Stderr, "%s: %s\n", file, err)
+			exitStatus = 2
 			continue
 		}
 
@@ -58,6 +64,7 @@ func main() {
 
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "diff failed: %s\n", err)
+				exitStatus = 2
 			} else {
 				fmt.Print(string(diffData))
 			}
@@ -73,6 +80,7 @@ func main() {
 			err = ioutil.WriteFile(file, stdout.Bytes(), mode)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "rewrite %s: %s\n", file, err)
+				exitStatus = 2
 			}
 			continue
 		}
@@ -84,6 +92,7 @@ func main() {
 		}
 		fmt.Print(stdout.String())
 	}
+	os.Exit(exitStatus)
 }
 
 func walk(ch chan string, files []string) {
