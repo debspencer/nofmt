@@ -11,6 +11,10 @@ import (
 	"github.com/debspencer/nofmt"
 )
 
+var (
+	exit = os.Exit
+)
+
 func main() {
 	opt := getOptions(os.Args)
 
@@ -46,7 +50,7 @@ func main() {
 				file = "stdin"
 			}
 			if stderr.Len() > 0 {
-				fmt.Print(stderr.String())
+				fmt.Fprint(os.Stderr, stderr.String())
 			}
 			fmt.Fprintf(os.Stderr, "%s: %s\n", file, err)
 			exitStatus = 2
@@ -92,7 +96,7 @@ func main() {
 		}
 		fmt.Print(stdout.String())
 	}
-	os.Exit(exitStatus)
+	exit(exitStatus)
 }
 
 func walk(ch chan string, files []string) {

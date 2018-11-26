@@ -13,6 +13,8 @@ import (
 func TestMain(t *testing.T) {
 	a := assert.New(t)
 
+	exit = func(int) {}
+
 	// Read in file to format
 	srcData, err := ioutil.ReadFile("../test-files/fmtme.go")
 	a.NoError(err)
@@ -130,49 +132,46 @@ func TestMain(t *testing.T) {
 		a.Contains(string(e), "stdin:")
 	})
 
-	// t.Run("stderr", func(t *testing.T) {
-	// 	a := assert.New(t)
+	t.Run("stderr", func(t *testing.T) {
+		a := assert.New(t)
 
-	// 	stdin, unfmted, err := os.Pipe()
-	// 	a.NoError(err)
+		stdin, unfmted, err := os.Pipe()
+		a.NoError(err)
 
-	// 	fmtted, stdout, err := os.Pipe()
-	// 	a.NoError(err)
+		fmtted, stdout, err := os.Pipe()
+		a.NoError(err)
 
-	// 	errData, stderr, err := os.Pipe()
-	// 	a.NoError(err)
+		errData, stderr, err := os.Pipe()
+		a.NoError(err)
 
-	// 	defer restorIn(setIn(stdin))
-	// 	defer restorOut(setOut(stdout))
-	// 	defer restorErr(setErr(stderr))
+		defer restorIn(setIn(stdin))
+		defer restorOut(setOut(stdout))
+		defer restorErr(setErr(stderr))
 
-	// 	os.Args = []string{"nofmt", "-F", "dd count=0"} // make some stderr without err
+		os.Args = []string{"nofmt", "-F", "dd count=0"} // make some stderr without err
 
-	// 	// write the source data to stdin
-	// 	_, err = unfmted.Write(srcData)
-	// 	a.NoError(err)
-	// 	unfmted.Close() // close stdin to flush
+		// write the source data to stdin
+		_, err = unfmted.Write(srcData)
+		a.NoError(err)
+		unfmted.Close() // close stdin to flush
 
-	// 	main()
-	// 	stdout.Close()
-	// 	stderr.Close()
+		main()
+		stdout.Close()
+		stderr.Close()
 
-	// 	b := make([]byte, 1024)
-	// 	n, _ := fmtted.Read(b)
-	// 	a.Equal(0, n)
+		b := make([]byte, 1024)
+		n, _ := fmtted.Read(b)
+		a.Equal(0, n)
 
-	// 	e := make([]byte, 1024)
-	// 	n, err = errData.Read(e)
-	// 	a.NoError(err)
-	// 	a.NotEqual(0, n)
+		e := make([]byte, 1024)
+		n, err = errData.Read(e)
+		a.NoError(err)
+		a.NotEqual(0, n)
 
-	// 	errData.Close()
-	// 	fmtted.Close()
-	// 	stdin.Close()
-
-	// 	e = e[:n]
-	// 	t.Error(string(e))
-	// })
+		errData.Close()
+		fmtted.Close()
+		stdin.Close()
+	})
 
 	t.Run("list", func(t *testing.T) {
 		a := assert.New(t)
