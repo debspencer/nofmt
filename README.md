@@ -54,127 +54,75 @@ func main() {
 
 This can be very useful for certain sparsly populataed data stuctures, where alignment can aide readability.
 
-See [nofmt/README.md](nofmt/README.md) file for info on using `nofmt` program.
-
-
-# nofmt
-`import "github.com/debspencer/nofmt"`
-
-* [Overview](#pkg-overview)
-* [Index](#pkg-index)
-* [Subdirectories](#pkg-subdirectories)
-
-## <a name="pkg-overview">Overview</a>
-
-
-
-## <a name="pkg-index">Index</a>
-* [Constants](#pkg-constants)
-* [Variables](#pkg-variables)
-* [type Formatter](#Formatter)
-  * [func New() *Formatter](#New)
-  * [func NewFormatter(formatter string) *Formatter](#NewFormatter)
-  * [func (f *Formatter) FormatFile(file string, out io.Writer, errOut io.Writer) error](#Formatter.FormatFile)
-  * [func (f *Formatter) FormatReader(in io.Reader, out io.Writer, errOut io.Writer) error](#Formatter.FormatReader)
-  * [func (f *Formatter) SourceData() []byte](#Formatter.SourceData)
-
-
-#### <a name="pkg-files">Package files</a>
-[nofmt.go](/src/github.com/debspencer/nofmt/nofmt.go) 
-
-## <a name="pkg-constants">Constants</a>
-``` go
-const (
-    Code codeState = iota
-    NoFmt
-    Fmt
-    BlockComment
-    BackTick
-)
-```
-``` go
-const (
-    Other            lineState = iota // before finding anything on the line
-    Indent                            // before finding anything on the line
-    BeginSlash                        // Found a slash (first on the line)
-    FoundSlash                        // Found a slash (not the first slash)
-    FoundStar                         // Found a * in an Block comment
-    LineComment                       // inside a line comment //
-    BeginLineComment                  // found a Line comment at the being of the line
-    InBlockComment                    // is a block comment /*
-    InBackTick                        // Inside a `string`
-    InQuote                           // Inside a "quote"
-    InTick                            // Instde a 'tick'
-    FoundQuote                        // Inside a "quote", found a quote, peek back for \
-    FoundTick                         // Inside a 'tick', found a tick, peek back for \
-    EndComment                        // End of a Block comment
-    EndBackTick                       // End of a Back tick block
-)
-```
-
-## <a name="pkg-variables">Variables</a>
-``` go
-var (
-    // DefaultFmter is the default 'fmt' program The format
-    // program will take either a file name or standard in and
-    // format it into Golang syntax Arguments are separated by
-    // spaces.  If %f appears in the argument string will be
-    // replaced by the filename.  If the file is stdandard input
-    // no file will provided.
-    DefaultFmter = "gofmt"
-)
-```
-
-## <a name="Formatter">type</a> [Formatter](/src/target/nofmt.go?s=716:1121#L32)
-``` go
-type Formatter struct {
-    // contains filtered or unexported fields
-}
+## Usage
 
 ```
-Formatter contains information about the file being formatted
+usage: nofmt [-d|-w|-l] [-D <diffprog>] [-e] [-F <fmter>] [file|dir ...]
+  -D string
+        diff program to use
+  -F string
+        specify formatter 'program args' (filename will be appended unless %f is used) (default "gofmt %f")
+  -d    only show differences
+  -e    pass -e to formatter program
+  -l    list all files whose formatting differs from nofmt's
+  -w    write back to file(s) instead of stdout
+  ```
 
-### <a name="New">func</a> [New](/src/target/nofmt.go?s=1262:1283#L43)
-``` go
-func New() *Formatter
-```
-New returns a Formatter object with the default fmter
+#### `-D string`
+When using `-d` diff option, specify an alternate diff program to use
+to generate diffs.  Default diff program is `$PATH/diff -u`.  To pass
+options to diff program enclose program name in quotes.  By default
+files passed to the diff program are appended to the end of the prgram
+provided.  To specify file order use `%f1` and `%f2` for placeholders of
+file names.
 
-### <a name="NewFormatter">func</a> [NewFormatter](/src/target/nofmt.go?s=1616:1662#L53)
-``` go
-func NewFormatter(formatter string) *Formatter
-```
-NewFormatter returns a Formatter object
-Formatter program options.  Replace %f with filename if present or append if not.
-examples: "gofmt %f", "gofmt", "/home/go/bin/goimports", "myfmttool -f %f -pretty"
-If stdin is used in %f will br replaced with a enpty string
+Examples:
+`nofmt -d -D /opt/bsd/diff -u foo.go`
+`nofmt -f -D 'sdiff -w132' foo.go`
+`nofmt -f -D 'sdiff -w132 %f1 %f2' foo.go`
 
-### <a name="Formatter.FormatFile">func</a> (\*Formatter) [FormatFile](/src/target/nofmt.go?s=2079:2161#L67)
-``` go
-func (f *Formatter) FormatFile(file string, out io.Writer, errOut io.Writer) error
-```
-FormatFile will write fmted output from file to the out io.Writer
-If there are syntax errors in the file and it can not be formatted, then error text will be written to errOut
-An error can be returned without any data being written to errOur
-Format will scan file for pramga codes // go:nofmt and // go:fmt
+#### `-F string`
 
-### <a name="Formatter.FormatReader">func</a> (\*Formatter) [FormatReader](/src/target/nofmt.go?s=2650:2735#L84)
-``` go
-func (f *Formatter) FormatReader(in io.Reader, out io.Writer, errOut io.Writer) error
-```
-FormatReader will write fmted output from reader to to the out io.Writer
-If there are syntax errors in the file and it can not be formatted, then error text will be written to errOut
-An error can be returned without any data being written to errOur
-Format will scan file for pramga codes // go:nofmt and // go:fmt
+Specify the formatter to use.  `nofmt` uses a formatter to do the
+formatting for regions that are not between `// go:nofmt` pragmas.
+Default formatter is `gofmt`, but can plug any format program such as
+`goimports`.  To specify a file to the formatter use `%f` otherwise
+the filename will be appened the command.
 
-### <a name="Formatter.SourceData">func</a> (\*Formatter) [SourceData](/src/target/nofmt.go?s=3976:4015#L129)
-``` go
-func (f *Formatter) SourceData() []byte
-```
-SourceData returns the original source data
+Examples:
+`nofmt -F gofmt foo.go`
+`nofmt -F goimports foo.go`
+`nofmt -F 'myformater -f %f' foo.go`
+
+#### `-d`
+
+Show differences between the current file(s) and formatted version.
+Use `-D` to specify a diff program other than `diff`.
+
+#### `-e`
+
+Pass `-e` option to formatter.  Both `gofmt` and `goimports` use `-e`
+to report more than just 10 errors.
+
+#### `-l`
+
+List all files whose formatting differs from that of `nofmt`.
+
+#### `-w`
+
+Write formatting changes back to original source file and not to
+stdout.  Must specify source file.
+
+#### `file|dir ...`
+
+One or more files or directories can be specified (can mix).  If a
+directory is specified, `nofmt` will walk the directory and apply
+options to each file with a `.go` extension.  If no files or
+directories are given, the `nofmt` will operate on stdin.`
 
 ## License
-This project is provide AS-IS.  Please see [LICENSE](LICENSE) file.
+This project is provide AS-IS.  Please see [../LICENSE](LICENSE) file.
+
 
 ## Contributing
 

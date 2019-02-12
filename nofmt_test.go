@@ -1,179 +1,307 @@
-package nofmt
+package main
 
 import (
-	"bufio"
-	"bytes"
 	"io/ioutil"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
-func TestFormatter(t *testing.T) {
-	t.Run("Default Options, Missing File", func(t *testing.T) {
-		f := NewFormatter("")
+func TestMain(t *testing.T) {
+	a := assert.New(t)
+
+	exit = func(int) {}
+
+	// Read in file to format
+	srcData, err := ioutil.ReadFile("parser/test-files/fmtme.go")
+	a.NoError(err)
+
+	// Read in formatted file
+	fmtData, err := ioutil.ReadFile("parser/test-files/nofmt.go")
+	a.NoError(err)
+
+	// copy the template file to a temp file
+	tmp, err := ioutil.TempFile("", "*.go")
+	a.NoError(err)
+
+	tmpPath := tmp.Name()
+	tmpDir := filepath.Dir(tmpPath)
+	tmpFile := filepath.Base(tmpPath)
+
+	_, err = tmp.Write(srcData)
+	a.NoError(err)
+
+	err = tmp.Close()
+	a.NoError(err)
+
+	setIn := func(newStdin *os.File) *os.File {
+		stdin := os.Stdin
+		os.Stdin = newStdin
+		return stdin
+	}
+	restorIn := func(stdin *os.File) {
+		os.Stdin = stdin
+	}
+
+	setOut := func(newStdout *os.File) *os.File {
+		stdout := os.Stdout
+		os.Stdout = newStdout
+		return stdout
+	}
+	restorOut := func(stdout *os.File) {
+		os.Stdout = stdout
+	}
+
+	setErr := func(newStderr *os.File) *os.File {
+		stderr := os.Stderr
+		os.Stderr = newStderr
+		return stderr
+	}
+	restorErr := func(stderr *os.File) {
+		os.Stderr = stderr
+	}
+
+	t.Run("stdin", func(t *testing.T) {
 		a := assert.New(t)
-		a.Equal(DefaultFmter, f.formatter)
 
-		stdout := &bytes.Buffer{}
-		stderr := &bytes.Buffer{}
-		err := f.FormatFile("test-files/missing.go", stdout, stderr)
-		assert.Error(t, err)
+		stdin, unfmted, err := os.Pipe()
+		a.NoError(err)
+
+		fmtted, stdout, err := os.Pipe()
+		a.NoError(err)
+
+		defer restorIn(setIn(stdin))
+		defer restorOut(setOut(stdout))
+
+		os.Args = []string{"nofmt"}
+
+		// write the source data to stdin
+		_, err = unfmted.Write(srcData)
+		a.NoError(err)
+		unfmted.Close() // close stdin to flush
+
+		main()
+		stdout.Close()
+
+		// read formatted from standard out
+		b := make([]byte, 1024)
+		n, err := fmtted.Read(b)
+		a.NoError(err)
+
+		fmtted.Close()
+		stdin.Close()
+
+		a.Equal(string(b[:n]), string(fmtData))
 	})
 
-	t.Run("Bad Fmter", func(t *testing.T) {
-		f := NewFormatter("call-to-a-non-existant/fmt-program/should-fail-to-exec %f")
-		stdout := &bytes.Buffer{}
-		stderr := &bytes.Buffer{}
-		err := f.FormatFile("test-files/fmtme.go", stdout, stderr)
-		assert.Error(t, err)
-	})
-
-	t.Run("Fmter Error", func(t *testing.T) {
-		f := NewFormatter("cat -?") // make some stderr
-		stdout := &bytes.Buffer{}
-		stderr := &bytes.Buffer{}
-		err := f.FormatFile("test-files/fmtme.go", stdout, stderr)
-		assert.Error(t, err)
-		assert.NotEmpty(t, stderr)
-	})
-
-	t.Run("Fmter mismatch", func(t *testing.T) {
-		f := NewFormatter("ls") // just data from formatter
-		stdout := &bytes.Buffer{}
-		stderr := &bytes.Buffer{}
-		err := f.FormatFile("test-files/fmtme.go", stdout, stderr)
-		assert.Error(t, err)
-	})
-
-	t.Run("Fmt File", func(t *testing.T) {
+	t.Run("stdin error", func(t *testing.T) {
 		a := assert.New(t)
 
-		f := NewFormatter("gofmt %f")
-		stdout := &bytes.Buffer{}
-		stderr := &bytes.Buffer{}
-		err := f.FormatFile("test-files/fmtme.go", stdout, stderr)
+		fmtted, stdout, err := os.Pipe()
 		a.NoError(err)
 
-		expected, err := ioutil.ReadFile("test-files/nofmt.go")
+		errData, stderr, err := os.Pipe()
 		a.NoError(err)
-		a.Equal(stdout.String(), string(expected))
 
-		data, err := ioutil.ReadFile("test-files/fmtme.go")
+		defer restorIn(setIn(nil))
+		defer restorOut(setOut(stdout))
+		defer restorErr(setErr(stderr))
+
+		os.Args = []string{"nofmt"}
+
+		main()
+		stdout.Close()
+		stderr.Close()
+
+		b := make([]byte, 1024)
+		n, _ := fmtted.Read(b)
+		a.Equal(0, n)
+
+		e := make([]byte, 1024)
+		n, err = errData.Read(e)
 		a.NoError(err)
-		a.Equal(f.SourceData(), data)
+		a.NotEqual(0, n)
+
+		errData.Close()
+		fmtted.Close()
+
+		e = e[:n]
+		a.Contains(string(e), "stdin:")
 	})
 
-	t.Run("Fmt Stdin", func(t *testing.T) {
+	t.Run("stderr", func(t *testing.T) {
 		a := assert.New(t)
 
-		f := NewFormatter("gofmt %f")
-		stdout := &bytes.Buffer{}
-		stderr := &bytes.Buffer{}
-
-		dot, err := os.Open(".")
+		stdin, unfmted, err := os.Pipe()
 		a.NoError(err)
 
-		err = f.FormatReader(dot, stdout, stderr)
-		a.Error(err)
+		fmtted, stdout, err := os.Pipe()
+		a.NoError(err)
+
+		errData, stderr, err := os.Pipe()
+		a.NoError(err)
+
+		defer restorIn(setIn(stdin))
+		defer restorOut(setOut(stdout))
+		defer restorErr(setErr(stderr))
+
+		os.Args = []string{"nofmt", "-F", "dd count=0"} // make some stderr without err
+
+		// write the source data to stdin
+		_, err = unfmted.Write(srcData)
+		a.NoError(err)
+		unfmted.Close() // close stdin to flush
+
+		main()
+		stdout.Close()
+		stderr.Close()
+
+		b := make([]byte, 1024)
+		n, _ := fmtted.Read(b)
+		a.Equal(0, n)
+
+		e := make([]byte, 1024)
+		n, err = errData.Read(e)
+		a.NoError(err)
+		a.NotEqual(0, n)
+
+		errData.Close()
+		fmtted.Close()
+		stdin.Close()
 	})
-}
 
-func TestReadFile(t *testing.T) {
-	fp, err := os.Open("test-files/fmtme.go")
-	buf := bufio.NewReader(fp)
+	t.Run("list", func(t *testing.T) {
+		a := assert.New(t)
 
-	blocks, err := readFile(buf)
-	t.Log(err)
-	for i, b := range blocks {
-		t.Log(i, b)
-	}
+		listing, stdout, err := os.Pipe()
+		a.NoError(err)
 
-}
+		defer restorOut(setOut(stdout))
 
-func TestProcessLine(t *testing.T) {
+		os.Args = []string{"nofmt", "-l", tmpDir}
 
-	// go:nofmt
-	tests := []struct {
-		name string
-		in   codeState // Code, BlockComment, BackTick
-		out  codeState // Code, BlockComment, BackTick, Fmt, NoFmt
-		line string
-	}{
-		{name: "Normal Comment", in: Code, out: Code, line: "//build +nofmt"},
-		{name: "Some Code", in: Code, out: Code, line: " 	foo := 1"},
-		{name: "NoFmt - no space", in: Code, out: NoFmt, line: " 	//go:nofmt"},
-		{name: "NoFmt - with space", in: Code, out: NoFmt, line: " 	// go:nofmt "},
-		{name: "Fmt - no space", in: Code, out: Fmt, line: "//go:fmt"},
-		{name: "Fmt - with space", in: Code, out: Fmt, line: " 	// go:fmt "},
-		{name: "Normal comment", in: Code, out: Code, line: "  // not go:fmt"},
-		{name: "Comment on a line", in: Code, out: Code, line: " foo = 3 // go:nofmt"},
-		{name: "Comment on a line with slash", in: Code, out: Code, line: " foo = 3/4 // go:nofmt"},
-		{name: "Block comment on a line", in: Code, out: Code, line: " foo := 1 /* set foo = 1 */"},
-		{name: "Block comment short", in: Code, out: Code, line: "/**/"},
-		{name: "Block comment start", in: Code, out: BlockComment, line: "  foo := 1 /* with tick `"},
-		{name: "Block comment end", in: BlockComment, out: Code, line: "  with tick `*/"},
-		{name: "BackTick on a line", in: Code, out: Code, line: " foo = `/* set foo = 1`"},
-		{name: "BackTick start", in: Code, out: BackTick, line: "  foo = `1 /* with comment"},
-		{name: "BackTick end", in: BackTick, out: Code, line: "  with comment /*`"},
-		{name: "BackTick continue", in: BackTick, out: BackTick, line: "  /* comment in tick "},
-		{name: "Quote", in: Code, out: Code, line: `baz := "normal quote"`},
-		{name: "Quote in quote", in: Code, out: Code, line: `baz := "quote\" in quote\""`},
-		{name: "Quote", in: Code, out: Code, line: `baz := "normal quote"`},
-		{name: "Tick", in: Code, out: Code, line: `rune := 'x'`},
-		{name: "Tick in tick", in: Code, out: Code, line: `rune := '\''`},
-		{name: "Backslash in tick", in: Code, out: Code, line: `rune := '\\'`},
-	}
-	// go:fmt
+		main()
+		stdout.Close()
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			out := parseLine(test.line, test.in)
-			assert.Equal(t, test.out, out)
-		})
-	}
-
-}
-
-func TestFmtFail(t *testing.T) {
-	f := Formatter{
-		file:      "test-files/missing.go",
-		formatter: "gofmt %f",
-	}
-	var errOut bytes.Buffer
-
-	data, err := f.fmtFile(&errOut)
-	assert.Error(t, err)
-	assert.Empty(t, data)
-}
-
-func TestFmtFile(t *testing.T) {
-	t.Run("File", func(t *testing.T) {
-		f := Formatter{
-			file:      "test-files/fmtme.go",
-			formatter: "gofmt test-files/fmtme.go",
+		s := strings.Builder{}
+		// read listing from standard out
+		for {
+			b := make([]byte, 1024)
+			n, err := listing.Read(b)
+			a.NoError(err)
+			s.Write(b[:n])
+			if n < 1024 {
+				break
+			}
 		}
-		var errOut bytes.Buffer
 
-		data, err := f.fmtFile(&errOut)
-		assert.NoError(t, err)
-		assert.Empty(t, errOut)
-		assert.NotEmpty(t, data)
+		listing.Close()
+
+		a.Contains(s.String(), tmpFile)
+
 	})
 
-	t.Run("Stdin", func(t *testing.T) {
-		// Test with Standard In
-		f := Formatter{
-			file:      "",
-			formatter: "gofmt test-files/fmtme.go",
-			srcData:   *bytes.NewBufferString("package main\nfunc main(){}\n"),
-		}
-		var errOut bytes.Buffer
+	t.Run("diff", func(t *testing.T) {
+		a := assert.New(t)
 
-		data, err := f.fmtFile(&errOut)
-		assert.NoError(t, err)
-		assert.Empty(t, errOut)
-		assert.NotEmpty(t, data)
+		diff, stdout, err := os.Pipe()
+		a.NoError(err)
+
+		defer restorOut(setOut(stdout))
+
+		os.Args = []string{"nofmt", "-d", tmpPath}
+
+		main()
+		stdout.Close()
+
+		b := make([]byte, 1024)
+		n, err := diff.Read(b)
+		a.NoError(err)
+		b = b[:n]
+
+		diff.Close()
+
+		a.Contains(string(b), "--- "+tmpPath)
+		a.Contains(string(b), "+++ "+tmpPath)
 	})
+
+	t.Run("diff fail", func(t *testing.T) {
+		a := assert.New(t)
+
+		diff, stdout, err := os.Pipe()
+		a.NoError(err)
+
+		defer restorOut(setOut(stdout))
+
+		os.Args = []string{"nofmt", "-d", "-D", "foo/bar/no/diff/here"} // doesn't make diff output
+
+		main()
+		stdout.Close()
+
+		b := make([]byte, 1024)
+		n, _ := diff.Read(b)
+		b = b[:n]
+
+		diff.Close()
+
+		a.NotContains(string(b), "--- "+tmpPath)
+		a.NotContains(string(b), "+++ "+tmpPath)
+	})
+
+	t.Run("rewrite fail", func(t *testing.T) {
+		a := assert.New(t)
+
+		err := os.Chmod(tmpPath, 0444)
+		a.NoError(err)
+
+		os.Args = []string{"nofmt", "-w", tmpPath}
+
+		main()
+
+		err = os.Chmod(tmpPath, 0644)
+		a.NoError(err)
+
+		b, err := ioutil.ReadFile(tmpPath)
+		a.NoError(err)
+
+		a.Equal(string(srcData), string(b))
+	})
+
+	t.Run("rewrite", func(t *testing.T) {
+		a := assert.New(t)
+
+		os.Args = []string{"nofmt", "-w", tmpPath}
+
+		main()
+
+		b, err := ioutil.ReadFile(tmpPath)
+		a.NoError(err)
+		a.Equal(string(fmtData), string(b))
+	})
+}
+
+func TestWalk(t *testing.T) {
+	a := assert.New(t)
+
+	ch := make(chan string, 128)
+	go func() {
+		walk(ch, []string{".", "", "/dev/null", "nofmt.go", "no/such/file/or/directory"})
+		close(ch)
+	}()
+
+	sl := make([]string, 128)
+	for s := range ch {
+		sl = append(sl, s)
+	}
+
+	a.Contains(sl, "nofmt.go")
+	a.Contains(sl, "nofmt_test.go")
+	a.Contains(sl, "options.go")
+	a.Contains(sl, "options_test.go")
+	a.NotContains(sl, "Makefile")
+	a.NotContains(sl, "..")
+	a.NotContains(sl, ".")
 }

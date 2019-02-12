@@ -3,6 +3,7 @@ all:
 	go build
 
 test:
+	(cd parser && $(MAKE) test)
 	go test
 
 cover:
